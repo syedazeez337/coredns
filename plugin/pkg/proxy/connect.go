@@ -179,7 +179,7 @@ func (p *Proxy) Connect(ctx context.Context, state request.Request, opts Options
 		}
 	}
 
-	upstreamDuration := time.Since(upstreamStart)
+	upstreamResponseDuration.WithLabelValues(p.addr, proto, rc, p.proxyName).Observe(time.Since(upstreamStart).Seconds())
 
 	// recovery the origin Id after upstream.
 	ret.Id = originId
