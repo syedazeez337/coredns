@@ -39,6 +39,9 @@ type Proxy struct {
 	// connection
 	client   pb.DnsServiceClient
 	dialOpts []grpc.DialOption
+
+	// streaming transport (opt-in, set when streaming directive is enabled)
+	streams *streamPool
 }
 
 // newProxy returns a new proxy.
@@ -74,6 +77,22 @@ func newProxy(addr string, tlsConfig *tls.Config) (*Proxy, error) {
 // query sends the request and waits for a response.
 func (p *Proxy) query(ctx context.Context, req *dns.Msg) (*dns.Msg, error) {
 	start := time.Now()
+
+	// streaming path: reuse a persistent stream slot — no per-query stream setup.
+	if p.streams != nil {
+		ret, err := p.streams.Query(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		rc, ok := dns.RcodeToString[ret.Rcode]
+		if !ok {
+			rc = strconv.Itoa(ret.Rcode)
+		}
+		RequestCount.WithLabelValues(p.addr).Add(1)
+		RcodeCount.WithLabelValues(rc, p.addr).Add(1)
+		RequestDuration.WithLabelValues(p.addr).Observe(time.Since(start).Seconds())
+		return ret, nil
+	}
 
 	msg, err := req.Pack()
 	if err != nil {

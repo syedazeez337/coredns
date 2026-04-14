@@ -9,4 +9,5 @@ message DnsPacket {
 
 service DnsService {
 	rpc Query (DnsPacket) returns (DnsPacket);
+	rpc QueryStream (stream DnsPacket) returns (stream DnsPacket);
 }

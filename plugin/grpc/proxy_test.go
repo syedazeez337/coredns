@@ -98,6 +98,10 @@ func (m testServiceClient) Query(ctx context.Context, in *pb.DnsPacket, opts ...
 	return m.dnsPacket, m.err
 }
 
+func (m testServiceClient) QueryStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[pb.DnsPacket, pb.DnsPacket], error) {
+	return nil, errors.New("QueryStream not implemented in mock")
+}
+
 func TestProxyUnix(t *testing.T) {
 	tdir := t.TempDir()
 

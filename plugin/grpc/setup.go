@@ -4,12 +4,16 @@ import (
 	"crypto/tls"
 	"fmt"
 	"path/filepath"
+	"strconv"
 
 	"github.com/coredns/caddy"
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/pkg/parse"
 	pkgtls "github.com/coredns/coredns/plugin/pkg/tls"
+	grpcgo "google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func init() { plugin.Register("grpc", setup) }
@@ -53,6 +57,7 @@ func parseGRPC(c *caddy.Controller) (*GRPC, error) {
 
 func parseStanza(c *caddy.Controller) (*GRPC, error) {
 	g := newGRPC()
+	var streamSize int
 
 	if !c.Args(&g.from) {
 		return g, c.ArgErr()
@@ -74,7 +79,7 @@ func parseStanza(c *caddy.Controller) (*GRPC, error) {
 	}
 
 	for c.NextBlock() {
-		if err := parseBlock(c, g); err != nil {
+		if err := parseBlock(c, g, &streamSize); err != nil {
 			return g, err
 		}
 	}
@@ -90,13 +95,31 @@ func parseStanza(c *caddy.Controller) (*GRPC, error) {
 		if err != nil {
 			return nil, err
 		}
+		if streamSize > 0 {
+			dialOpts := buildStreamDialOpts(g.tlsConfig)
+			pr.streams = newStreamPool(host, dialOpts, streamSize)
+			if err := pr.streams.Start(); err != nil {
+				return nil, fmt.Errorf("streaming pool start: %w", err)
+			}
+		}
 		g.proxies = append(g.proxies, pr)
 	}
 
 	return g, nil
 }
 
-func parseBlock(c *caddy.Controller, g *GRPC) error {
+// buildStreamDialOpts constructs dial options for the streaming transport.
+func buildStreamDialOpts(tlsConfig *tls.Config) []grpcgo.DialOption {
+	var opts []grpcgo.DialOption
+	if tlsConfig != nil {
+		opts = append(opts, grpcgo.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
+	} else {
+		opts = append(opts, grpcgo.WithTransportCredentials(insecure.NewCredentials()))
+	}
+	return opts
+}
+
+func parseBlock(c *caddy.Controller, g *GRPC, streamSize *int) error {
 	switch c.Val() {
 	case "except":
 		ignore := c.RemainingArgs()
@@ -143,6 +166,15 @@ func parseBlock(c *caddy.Controller, g *GRPC) error {
 		}
 	case "fallthrough":
 		g.Fall.SetZonesFromArgs(c.RemainingArgs())
+	case "streaming":
+		if !c.NextArg() {
+			return c.ArgErr()
+		}
+		n, err := strconv.Atoi(c.Val())
+		if err != nil || n < 1 {
+			return fmt.Errorf("streaming requires a positive integer (stream slots), got %q", c.Val())
+		}
+		*streamSize = n
 	default:
 		if c.Val() != "}" {
 			return c.Errf("unknown property '%s'", c.Val())

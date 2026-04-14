@@ -123,6 +123,10 @@ func (c *deadlineCheckingClient) Query(ctx context.Context, in *pb.DnsPacket, op
 	return c.dnsPacket, c.err
 }
 
+func (c *deadlineCheckingClient) QueryStream(ctx context.Context, opts ...grpcgo.CallOption) (grpcgo.BidiStreamingClient[pb.DnsPacket, pb.DnsPacket], error) {
+	return nil, errors.New("QueryStream not implemented in mock")
+}
+
 // Test that on error paths we still finish child spans, and that we set a per-call deadline.
 func TestGRPC_SpansOnErrorPath(t *testing.T) {
 	m := &dns.Msg{}
